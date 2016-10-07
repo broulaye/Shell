@@ -7,8 +7,14 @@
 #include <stdio.h>
 #include <readline/readline.h>
 #include <unistd.h>
-
+#include <fcntl.h>
+#include <wait.h>
+#include <assert.h>
+#include <setjmp.h>
 #include "esh.h"
+#include "esh-sys-utils.h"
+
+static jmp_buf jump_buf;
 
 static void
 usage(char *progname)
@@ -56,6 +62,57 @@ build_prompt_from_plugins(void)
     return prompt;
 }
 
+/** Handles a SIGTTOU signal. */
+static char *
+handle_sigttou(int signal, siginfo_t *sig_inf, void *txt) {
+    assert(signal == SIGTTOU);
+    printf("SIGTTOU signal received\n");
+    if (kill(sig_inf -> si_pid, SIGSTOP) < 0) {
+        esh_sys_fatal_error("Kill: SIGSTOP failed\n");
+    }
+}
+
+/** Handles a SIGTSTP signal. */
+static void
+handle_sigtstp(int signal, siginfo *sig_inf, void *txt) {
+    assert(signal == SIGTSTP);
+    printf("\n");
+    longjmp(jump_buf, 1);
+} 
+
+/** Handles a SIGINT signal. */
+static void
+handle_sigint(int signal, siginfo_t *sig_inf, void *txt) {
+    assert(signal == SIGINT);
+    printf("\n");
+    longjmp(jump_buf, 1);
+}
+
+/* You may use this code in your shell without attribution. */
+static int
+get_command_type(char* argv) {
+    if (strcmp("jobs", argv) == 0) {
+        return 1;
+    }
+    else if (strcmp("fg", argv) == 0) {
+        return 2;
+    }
+    else if (strcmp("bg", argv) == 0) {
+        return 3;
+    }
+    else if (strcmp("kill", argv) == 0) {
+        return 4;
+    }
+    else if (strcmp("stop", argv) == 0) {
+        return 5;
+    }
+    else if (strcmp("quit", argv) == 0) {
+        return 6;
+    }
+
+    return 0;
+}
+
 /* The shell object plugins use.
  * Some methods are set to defaults.
  */
@@ -69,6 +126,7 @@ struct esh_shell shell =
 int
 main(int ac, char *av[])
 {
+    
     int opt;
     list_init(&esh_plugin_list);
 
@@ -107,7 +165,16 @@ main(int ac, char *av[])
             continue;
         }
 
-        esh_command_line_print(cline);
+        switch (get_command_type()) {
+
+            case 6:
+            // quit command
+                exit(EXIT_SUCCESS);
+            default:
+            // executing a program
+
+        }
+
         esh_command_line_free(cline);
     }
     return 0;
