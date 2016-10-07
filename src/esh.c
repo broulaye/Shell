@@ -64,7 +64,7 @@ build_prompt_from_plugins(void)
 
 /** Handles a SIGTTOU signal. */
 static char *
-handle_sigttou(int signal, siginfo_t *sig_inf, void *txt) {
+handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGTTOU);
     printf("SIGTTOU signal received\n");
     if (kill(sig_inf -> si_pid, SIGSTOP) < 0) {
@@ -74,7 +74,7 @@ handle_sigttou(int signal, siginfo_t *sig_inf, void *txt) {
 
 /** Handles a SIGTSTP signal. */
 static void
-handle_sigtstp(int signal, siginfo *sig_inf, void *txt) {
+handle_sigtstp(int signal, siginfo *sig_inf, void *p) {
     assert(signal == SIGTSTP);
     printf("\n");
     longjmp(jump_buf, 1);
@@ -82,7 +82,7 @@ handle_sigtstp(int signal, siginfo *sig_inf, void *txt) {
 
 /** Handles a SIGINT signal. */
 static void
-handle_sigint(int signal, siginfo_t *sig_inf, void *txt) {
+handle_sigint(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGINT);
     printf("\n");
     longjmp(jump_buf, 1);
