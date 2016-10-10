@@ -206,15 +206,15 @@ main(int ac, char *av[])
             continue;
         }
 
-        switch (get_command_type()) {
-
-            case 6:
-            // quit command
-                exit(EXIT_SUCCESS);
-            default:
-            // executing a program
-
-        }
+	struct list_elem * e = list_begin(&cline->pipes);
+	for (; e != list_end(&cline->pipes); e = list_next(e)) {
+		struct esh_pipesline *pipe = list_entry(e, struct esh_pipeline, elem);
+		struct list_elem *c = list_begin(&pipe->commands);
+		for (; c != list_end(&pipe->commands); c = list_next(c)) {
+			struct esh_command *command = list_entry(c, struct esh_command, elem);
+			Process(command->argv);
+		}
+	}
 
         esh_command_line_free(cline);
     }
