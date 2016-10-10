@@ -88,30 +88,6 @@ handle_sigint(int signal, siginfo_t *sig_inf, void *p) {
     longjmp(jump_buf, 1);
 }
 
-/* You may use this code in your shell without attribution. */
-static int
-get_command_type(char* argv) {
-    if (strcmp("jobs", argv) == 0) {
-        return 1;
-    }
-    else if (strcmp("fg", argv) == 0) {
-        return 2;
-    }
-    else if (strcmp("bg", argv) == 0) {
-        return 3;
-    }
-    else if (strcmp("kill", argv) == 0) {
-        return 4;
-    }
-    else if (strcmp("stop", argv) == 0) {
-        return 5;
-    }
-    else if (strcmp("quit", argv) == 0) {
-        return 6;
-    }
-
-    return 0;
-}
 
 /* The shell object plugins use.
  * Some methods are set to defaults.
@@ -122,6 +98,71 @@ struct esh_shell shell =
     .readline = readline,       /* GNU readline(3) */ 
     .parse_command_line = esh_parse_command_line /* Default parser */
 };
+
+struct list *jobs = list_init(jobs);
+
+static void Process(char** argv) {
+	if(strcmp(argv[0], "kill") == 0) {
+		printf("Kill: %s\n", argv[1];
+		kill(atoi(argv[1]), SIGKILL);
+	}
+
+	if (strcmp(argv[0], "jobs") == 0) {
+		struct list_elem * j = list_begin(get_job());
+
+		for(; j != list_end(get_job()); j = list_next(j)){
+			struct esh_pipeline *Ljobs = list_entry(j, struct esh_pipeline, elem);
+
+			esh_pipeline_print(Ljobs);
+		}
+	}
+}
+
+struct esh_pipeline * get_job_from_jid(int jid) {
+	struct list_elem * e = list_begin (&jobs);
+	for (; e != list_end(&jobs); e = list_next(e)) {
+		struct esh_pipeline *job = list_entry(e, struct esh_pipeline, elem);
+		if (job->jid == jid) {
+			return job;
+		}
+	}
+	return NULL;
+}
+
+struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
+	struct list_elem * e = list_begin(&jobs);
+	for (; e != list_end(&jobs); e = list_next(e)) {
+		struct esh_pipeline *pipe = list_entry(e, struct esh_pipeline, elem);
+		struct list_elem *c = list_begin(&pipe->commands);
+		for (; c != list_end(&pipe->commands); c = list_next(c)){
+			struct esh_command *command = list_entry(c, struct esh_command, elem);
+			if (command->pid == pid) {
+				return command;
+			}
+		}
+	}
+	return NULL;
+}
+
+struct esh_pipeline * esh_pipeline_create(struct esh_command *cmd) {
+	struct esh_pipeline *new_pipeline;
+	new_pipeline->commands = list_init(new_pipeline->commands);
+	push_front(new_pipeline->commands, cmd);
+	return new_pipeline;
+}
+
+void esh_pipeline_finish(struct esh_pipeline *pipe) {
+	pipe->iored_input = list_front(pipe->commands)->iored_input;
+	pipe->iored_output = list_back(pipe->commands)->iored_output;
+}
+
+struct esh_command_line * esh_command_line_create(struct esh_pipeline *pipe) {
+	esh_command_line command_line;
+	list_init(command_line->list);
+	list_push_front(command_line->list, pipe);
+	return command_line;
+}
+
 
 int
 main(int ac, char *av[])
