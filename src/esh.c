@@ -99,28 +99,137 @@ struct esh_shell shell =
     .parse_command_line = esh_parse_command_line /* Default parser */
 };
 
-struct list *jobs = list_init(jobs);
+struct list *jobs;
+
+static int wait_for_job(struct esh_pipeline *job) {
+
+}
 
 static void Process(char** argv) {
 	if(strcmp(argv[0], "kill") == 0) {
-		printf("Kill: %s\n", argv[1];
+		printf("Kill: %s\n", argv[1]);
 		kill(atoi(argv[1]), SIGKILL);
 	}
 
 	if (strcmp(argv[0], "jobs") == 0) {
-		struct list_elem * j = list_begin(get_job());
+		struct list_elem * j = list_begin(jobs);
 
-		for(; j != list_end(get_job()); j = list_next(j)){
+		for(; j != list_end(jobs); j = list_next(j)){
 			struct esh_pipeline *Ljobs = list_entry(j, struct esh_pipeline, elem);
 
 			esh_pipeline_print(Ljobs);
 		}
 	}
+	if (strcmp(argv[0], "bg") == 0) {
+		if (argv[1] == NULL) {
+			struct list_elem * j = list_rbegin(jobs);
+			struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
+			job->status = BACKGROUND;
+			printf("[%d]+", job->jid);
+			print_job_command(job);
+			printf("\n");
+			if (kill(job->pgrp, SIGCONT) < 0) {
+				esh_sys_fatal_error("bg: kill failed\n");
+			}
+		}
+		else {
+			struct list_elem * j = list_begin(jobs);
+			struct esh_pipeline *job;
+			int jid = atoi(argv[1]);
+			int found = 0;
+			for (; j != list_end(jobs); j = list_next(j)) {
+				job = list_entry(j, struct esh_pipeline, elem);
+				if (job->jid == jid) {
+					found++;
+					break;
+				}
+			}
+			if (!found) {
+				//Job not there
+				printf("bg: %d: no such job\n", jid);
+			}
+			else {
+				job->status = BACKGROUND;
+				printf("[%d]+", job->jid);
+				print_job_command(job);
+				printf("\n");
+				if (kill(job->pgrp, SIGCONT) < 0) {
+					esh_sys_fatal_error("bg: kill failed\n");
+				}
+			}
+		}
+		
+	}
+	if (strcmp(argv[0], "fg") == 0) {
+		if (argv[1] == NULL) {
+			struct list_elem * j = list_rbegin(jobs);
+			struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
+			list_remove(&job->elem);
+			job->status = FOREGROUND;
+			printf("[%d]+", job->jid);
+			print_job_command(job);
+			printf("\n");
+			if (kill(job->pgrp, SIGCONT) < 0) {
+				esh_sys_fatal_error("bg: kill failed\n");
+			}
+		}
+		else {
+			struct list_elem * j = list_begin(jobs);
+			struct esh_pipeline *job;
+			int jid = atoi(argv[1]);
+			int found = 0;
+			for (; j != list_end(jobs); j = list_next(j)) {
+				job = list_entry(j, struct esh_pipeline, elem);
+				if (job->jid == jid) {
+					found++;
+					break;
+				}
+			}
+			if (!found) {
+				//Job not there
+				printf("bg: %d: no such job\n", jid);
+			}
+			else {
+				list_remove(&job->elem);
+
+				esh_signal_block(SIGCHLD);
+				job->status = FOREGROUND;
+				printf("[%d]+", job->jid);
+				print_job_command(job);
+				printf("\n");
+				if (kill(job->pgrp, SIGCONT) < 0) {
+					esh_sys_fatal_error("bg: kill failed\n");
+				}
+				wait_for_job(job);
+				esh_signal_unblock(SIGCHLD);
+			}
+		}
+	}
+	if (strcmp(argv[0], "stop") == 0) {
+		if (argv[1] == NULL) {
+			printf("usage: stop [jid]\n");
+		}
+		else {
+			struct list_elem *j = list_begin(jobs);
+			struct esh_pipeline *job;
+			for (; j != list_end(jobs); j = list_next(j)) {
+				job = list_entry(j, struct esh_pipeline, elem);
+				if (job->jid == atoi(argv[1])) {
+					break;
+				}
+			}
+			kill(job->pgrp, SIGSTOP);
+		}
+	}
+	/* exit the shell */
+	if (strcmp(argv[0], "exit") == 0) {
+		exit(EXIT_SUCCESS);
+	}
 }
 
 struct esh_pipeline * get_job_from_jid(int jid) {
-	struct list_elem * e = list_begin (&jobs);
-	for (; e != list_end(&jobs); e = list_next(e)) {
+	struct list_elem * e = list_begin (jobs);
+	for (; e != list_end(jobs); e = list_next(e)) {
 		struct esh_pipeline *job = list_entry(e, struct esh_pipeline, elem);
 		if (job->jid == jid) {
 			return job;
@@ -130,39 +239,15 @@ struct esh_pipeline * get_job_from_jid(int jid) {
 }
 
 struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
-	struct list_elem * e = list_begin(&jobs);
-	for (; e != list_end(&jobs); e = list_next(e)) {
+	struct list_elem * e = list_begin(jobs);
+	for (; e != list_end(jobs); e = list_next(e)) {
 		struct esh_pipeline *pipe = list_entry(e, struct esh_pipeline, elem);
-		struct list_elem *c = list_begin(&pipe->commands);
-		for (; c != list_end(&pipe->commands); c = list_next(c)){
-			struct esh_command *command = list_entry(c, struct esh_command, elem);
-			if (command->pid == pid) {
-				return command;
-			}
+		if (pipe->pgrp == pgrp) {
+			return pipe;
 		}
 	}
 	return NULL;
 }
-
-struct esh_pipeline * esh_pipeline_create(struct esh_command *cmd) {
-	struct esh_pipeline *new_pipeline;
-	new_pipeline->commands = list_init(new_pipeline->commands);
-	push_front(new_pipeline->commands, cmd);
-	return new_pipeline;
-}
-
-void esh_pipeline_finish(struct esh_pipeline *pipe) {
-	pipe->iored_input = list_front(pipe->commands)->iored_input;
-	pipe->iored_output = list_back(pipe->commands)->iored_output;
-}
-
-struct esh_command_line * esh_command_line_create(struct esh_pipeline *pipe) {
-	esh_command_line command_line;
-	list_init(command_line->list);
-	list_push_front(command_line->list, pipe);
-	return command_line;
-}
-
 
 int
 main(int ac, char *av[])
@@ -170,6 +255,7 @@ main(int ac, char *av[])
     
     int opt;
     list_init(&esh_plugin_list);
+    list_init(jobs);
 
     /* Process command-line arguments. See getopt(3) */
     while ((opt = getopt(ac, av, "hp:")) > 0) {
@@ -208,7 +294,7 @@ main(int ac, char *av[])
 
 	struct list_elem * e = list_begin(&cline->pipes);
 	for (; e != list_end(&cline->pipes); e = list_next(e)) {
-		struct esh_pipesline *pipe = list_entry(e, struct esh_pipeline, elem);
+		struct esh_pipeline *pipe = list_entry(e, struct esh_pipeline, elem);
 		struct list_elem *c = list_begin(&pipe->commands);
 		for (; c != list_end(&pipe->commands); c = list_next(c)) {
 			struct esh_command *command = list_entry(c, struct esh_command, elem);
