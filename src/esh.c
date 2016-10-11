@@ -27,7 +27,7 @@ usage(char *progname)
     exit(EXIT_SUCCESS);
 }
 
-/* Build a prompt by assembling fragments from loaded plugins that 
+/* Build a prompt by assembling fragments from loaded plugins that
  * implement 'make_prompt.'
  *
  * This function demonstrates how to iterate over all loaded plugins.
@@ -78,7 +78,7 @@ handle_sigtstp(int signal, siginfo *sig_inf, void *p) {
     assert(signal == SIGTSTP);
     printf("\n");
     longjmp(jump_buf, 1);
-} 
+}
 
 /** Handles a SIGINT signal. */
 static void
@@ -95,7 +95,7 @@ handle_sigint(int signal, siginfo_t *sig_inf, void *p) {
 struct esh_shell shell =
 {
     .build_prompt = build_prompt_from_plugins,
-    .readline = readline,       /* GNU readline(3) */ 
+    .readline = readline,       /* GNU readline(3) */
     .parse_command_line = esh_parse_command_line /* Default parser */
 };
 
@@ -158,7 +158,7 @@ static void Process(char** argv) {
 				}
 			}
 		}
-		
+
 	}
 	if (strcmp(argv[0], "fg") == 0) {
 		if (argv[1] == NULL) {
@@ -227,7 +227,7 @@ static void Process(char** argv) {
 	}
 }
 
-struct esh_pipeline * get_job_from_jid(int jid) {
+static struct esh_pipeline * get_job_from_jid(int jid) {
 	struct list_elem * e = list_begin (jobs);
 	for (; e != list_end(jobs); e = list_next(e)) {
 		struct esh_pipeline *job = list_entry(e, struct esh_pipeline, elem);
@@ -238,7 +238,7 @@ struct esh_pipeline * get_job_from_jid(int jid) {
 	return NULL;
 }
 
-struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
+static struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
 	struct list_elem * e = list_begin(jobs);
 	for (; e != list_end(jobs); e = list_next(e)) {
 		struct esh_pipeline *pipe = list_entry(e, struct esh_pipeline, elem);
@@ -252,7 +252,7 @@ struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
 int
 main(int ac, char *av[])
 {
-    
+
     int opt;
     list_init(&esh_plugin_list);
     list_init(jobs);
