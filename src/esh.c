@@ -14,6 +14,7 @@
 #include "esh.h"
 #include "esh-sys-utils.h"
 
+static struct termios *termi;
 static jmp_buf jump_buf;
 
 static void
@@ -101,8 +102,57 @@ struct esh_shell shell =
 
 struct list *jobs;
 
-static int wait_for_job(struct esh_pipeline *job) {
+static void give_terminal(pid_t grp, struct termios *termi_s) {
+	esh_signal_block(SIGTTOU);
+	int set_grp = tcsetpgrp(esh_sys_tty_getfd(), grp);
+	if (set_grp == -1) {
+		esh_sys_fatal_error("tcsetpgrp");
+	}
+	if (termi_s) {
+		esh_sys_tty_restore(termi_s);
+	}
+	esh_signal_unblock(SIGTTOU);
+}
 
+static void change_chld_stat(pid_t chld, int stat) {
+	assert(chld > 0);
+	struct esh_command *cmd = get_job_from_pid(chld);
+	if (cmd == NULL) {
+		printf("no such job\n");
+		return;
+	}
+	struct esh_pipeline * chld_pipe = cmd->pipeline;
+	if (WIFEXITED(stat)) {
+		chld_pipe->status = BACKGROUND;
+		if (&cmd->elem == list_rbegin(&chld_pipe->commands)) {
+			list_remove(&chld_pipe->elem);
+			give_terminal(getpgrp(), termi);
+		}
+	}
+	if (WIFSTOPPED(stat)) {
+		if (WSTOPSIG(stat) == 19) {
+			printf("19\n");
+			chld_pipe->status = STOPPED;
+		}
+		else {
+			printf("\n[%d]  Stopped    ", chld_pipe->jid);
+			esh_pipeline_print(chld_pipe);
+			chld_pipe->status = STOPPED;
+			give_terminal(getpgrp(), termi);
+		}
+	}
+}
+
+static void job_wait(struct esh_pipeline *job) {
+	assert(esh_signal_is_blocked(SIGCHLD));
+
+	while (job->status == FOREGROUND &&  !list_empty(&job->commands)) {
+		int stat;
+		pid_t chld = waitpid(-1, &stat, WUNTRACED);
+		if (chld == -1) {
+			change_chld_stat(chld, stat);
+		}
+	}
 }
 
 static void Process(char** argv) {
@@ -126,7 +176,7 @@ static void Process(char** argv) {
 			struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
 			job->status = BACKGROUND;
 			printf("[%d]+", job->jid);
-			print_job_command(job);
+			esh_pipeline_print(job);
 			printf("\n");
 			if (kill(job->pgrp, SIGCONT) < 0) {
 				esh_sys_fatal_error("bg: kill failed\n");
@@ -151,7 +201,7 @@ static void Process(char** argv) {
 			else {
 				job->status = BACKGROUND;
 				printf("[%d]+", job->jid);
-				print_job_command(job);
+				esh_pipeline_print(job);
 				printf("\n");
 				if (kill(job->pgrp, SIGCONT) < 0) {
 					esh_sys_fatal_error("bg: kill failed\n");
@@ -167,7 +217,7 @@ static void Process(char** argv) {
 			list_remove(&job->elem);
 			job->status = FOREGROUND;
 			printf("[%d]+", job->jid);
-			print_job_command(job);
+			esh_pipeline_print(job);
 			printf("\n");
 			if (kill(job->pgrp, SIGCONT) < 0) {
 				esh_sys_fatal_error("bg: kill failed\n");
@@ -195,12 +245,12 @@ static void Process(char** argv) {
 				esh_signal_block(SIGCHLD);
 				job->status = FOREGROUND;
 				printf("[%d]+", job->jid);
-				print_job_command(job);
+				esh_pipeline_print(job);
 				printf("\n");
 				if (kill(job->pgrp, SIGCONT) < 0) {
 					esh_sys_fatal_error("bg: kill failed\n");
 				}
-				wait_for_job(job);
+				job_wait(job);
 				esh_signal_unblock(SIGCHLD);
 			}
 		}
