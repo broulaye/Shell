@@ -63,7 +63,7 @@ build_prompt_from_plugins(void)
 }
 
 /** Handles a SIGTTOU signal. */
-static char *
+static void
 handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGTTOU);
     printf("SIGTTOU signal received\n");
@@ -74,7 +74,7 @@ handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
 
 /** Handles a SIGTSTP signal. */
 static void
-handle_sigtstp(int signal, siginfo *sig_inf, void *p) {
+handle_sigtstp(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGTSTP);
     printf("\n");
     longjmp(jump_buf, 1);
@@ -252,7 +252,8 @@ static struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
 int
 main(int ac, char *av[])
 {
-
+    esh_signal_sethandler(SIGTSTP, handle_sigtstp);
+    esh_signal_sethandler(SIGINT, handle_sigint);
     int opt;
     list_init(&esh_plugin_list);
     list_init(jobs);
