@@ -279,7 +279,6 @@ static bool Process(char** argv) {
 			}
 			else {
 				esh_signal_block(SIGCHLD);
-				list_remove(&job->elem);
 				job->status = FOREGROUND;
 				printf("[%d]+", job->jid);
 				esh_pipeline_print(job);
@@ -288,6 +287,7 @@ static bool Process(char** argv) {
 					esh_sys_fatal_error("bg: kill failed\n");
 				}
 				job_wait(job);
+				list_remove(&job->elem);
 				esh_signal_unblock(SIGCHLD);
 			}
 
