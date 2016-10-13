@@ -387,6 +387,7 @@ termi = esh_sys_tty_init();
     }
 
     esh_plugin_initialize(&shell);
+    setjmp(jump_buf);
 
     /* Read/eval loop. */
     for (;;) {
