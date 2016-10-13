@@ -166,6 +166,18 @@ static void change_chld_stat(pid_t chld, int stat) {
 			give_terminal_to(getpgrp(), termi);
 		}
 	}
+	if (WIFSIGNALED(stat)) {
+		if (WTERMSIG(stat)) {
+			list_remove(&chld_pipe->elem);
+		}
+		else {
+			printf("[%d]  Terminated    ", chld_pipe->jid);
+			esh_pipeline_print(chld_pipe);
+			chld_pipe->status = BACKGROUND;
+			list_remove(&chld_pipe->elem);
+			give_terminal_to(getpgrp(), termi);
+		}
+	}
 	if (WIFSTOPPED(stat)) {
 		if (WSTOPSIG(stat) == 19) {
 			printf("19\n");
@@ -179,6 +191,7 @@ static void change_chld_stat(pid_t chld, int stat) {
 		}
 	}
 }
+
 
 static void job_wait(struct esh_pipeline *job) {
 	assert(esh_signal_is_blocked(SIGCHLD));
@@ -372,7 +385,7 @@ main(int ac, char *av[])
     int jid = 0;
     list_init(&esh_plugin_list);
     list_init(&jobs);
-termi = esh_sys_tty_init();
+    termi = esh_sys_tty_init();
     /* Process command-line arguments. See getopt(3) */
     while ((opt = getopt(ac, av, "hp:")) > 0) {
         switch (opt) {
@@ -388,6 +401,8 @@ termi = esh_sys_tty_init();
 
     esh_plugin_initialize(&shell);
     setjmp(jump_buf);
+
+    give_terminal_to(getpgrp(), termi);
 
     /* Read/eval loop. */
     for (;;) {
