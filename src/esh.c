@@ -63,7 +63,7 @@ build_prompt_from_plugins(void)
     return prompt;
 }
 
-/** Handles a SIGTTOU signal.
+/** Handles a SIGTTOU signal. */
 static void
 handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGTTOU);
@@ -71,7 +71,7 @@ handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     if (kill(sig_inf -> si_pid, SIGSTOP) < 0) {
         esh_sys_fatal_error("Kill: SIGSTOP failed\n");
     }
-}*/
+}
 
 /** Handles a SIGTSTP signal. */
 static void
@@ -318,6 +318,11 @@ static void Process(char** argv) {
 	}
 	else {
 		/* User is running a program - fork and exec */
+		esh_signal_sethandler(SIGCHLD, handle_sgttou);
+
+		esh_signal_unblock(SIGCHLD);
+
+		
 	}
 }
 
