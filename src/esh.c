@@ -186,7 +186,8 @@ static void job_wait(struct esh_pipeline *job) {
 	while (job->status == FOREGROUND &&  !list_empty(&job->commands)) {
 		int stat;
 		pid_t chld = waitpid(-1, &stat, WUNTRACED);
-		if (chld == -1) {
+printf("chld: %d\ncaller: %d\nstat: %d\n", chld, getpid(), stat);
+		if (chld != -1) {
 			change_chld_stat(chld, stat);
 		}
 	}
@@ -371,7 +372,7 @@ main(int ac, char *av[])
     int jid = 0;
     list_init(&esh_plugin_list);
     list_init(&jobs);
-
+termi = esh_sys_tty_init();
     /* Process command-line arguments. See getopt(3) */
     while ((opt = getopt(ac, av, "hp:")) > 0) {
         switch (opt) {
