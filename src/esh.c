@@ -188,7 +188,7 @@ static void Process(char** argv) {
 		kill(atoi(argv[1]), SIGKILL);
 	}
 
-	if (strcmp(argv[0], "jobs") == 0) {
+	else if (strcmp(argv[0], "jobs") == 0) {
 		struct list_elem * j = list_begin(&jobs);
 
 		for(; j != list_end(&jobs); j = list_next(j)){
@@ -197,7 +197,7 @@ static void Process(char** argv) {
 			esh_pipeline_print(Ljobs);
 		}
 	}
-	if (strcmp(argv[0], "bg") == 0) {
+	else if (strcmp(argv[0], "bg") == 0) {
 		if (!list_empty(&jobs)) {
 			if (argv[1] == NULL) {
 				struct list_elem * j = list_rbegin(&jobs);
@@ -241,23 +241,26 @@ static void Process(char** argv) {
 			printf("bg: current: no such job\n");
 		}
 	}
-	if (strcmp(argv[0], "fg") == 0) {
+	else if (strcmp(argv[0], "fg") == 0) {
 		if (argv[1] == NULL) {
-		    printf("fg with no parameter ");
+			printf("fg with no parameter ");
 			struct list_elem * j = list_rbegin(&jobs);
 			struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
 			if(list_empty(&jobs)) {
-                printf("fg: current: no such job\n");
+				printf("fg: current: no such job\n");
 			}
 			else {
-                list_remove(&job->elem);
-                job->status = FOREGROUND;
-                printf("[%d]+", job->jid);
-                esh_pipeline_print(job);
-                printf("\n");
-                if (kill(job->pgrp, SIGCONT) < 0) {
-                    esh_sys_fatal_error("bg: kill failed\n");
-                }
+				esh_signal_block(SIGCHLD);
+				list_remove(&job->elem);
+				job->status = FOREGROUND;
+				printf("[%d]+", job->jid);
+				esh_pipeline_print(job);
+				printf("\n");
+				if (kill(job->pgrp, SIGCONT) < 0) {
+					esh_sys_fatal_error("bg: kill failed\n");
+				}
+				job_wait(job);
+				esh_signal_unblock(SIGCHLD);
 			}
 
 		}
@@ -293,7 +296,7 @@ static void Process(char** argv) {
 			}
 		}
 	}
-	if (strcmp(argv[0], "stop") == 0) {
+	else if (strcmp(argv[0], "stop") == 0) {
 		if (argv[1] == NULL) {
 			printf("usage: stop [jid]\n");
 		}
@@ -310,8 +313,11 @@ static void Process(char** argv) {
 		}
 	}
 	/* exit the shell */
-	if (strcmp(argv[0], "exit") == 0) {
+	else if (strcmp(argv[0], "exit") == 0) {
 		exit(EXIT_SUCCESS);
+	}
+	else {
+		/* User is running a program - fork and exec */
 	}
 }
 
