@@ -198,34 +198,10 @@ static void Process(char** argv) {
 		}
 	}
 	if (strcmp(argv[0], "bg") == 0) {
-		if (argv[1] == NULL) {
-			struct list_elem * j = list_rbegin(&jobs);
-			struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
-			job->status = BACKGROUND;
-			printf("[%d]+", job->jid);
-			esh_pipeline_print(job);
-			printf("\n");
-			if (kill(job->pgrp, SIGCONT) < 0) {
-				esh_sys_fatal_error("bg: kill failed\n");
-			}
-		}
-		else {
-			struct list_elem * j = list_begin(&jobs);
-			struct esh_pipeline *job;
-			int jid = atoi(argv[1]);
-			int found = 0;
-			for (; j != list_end(&jobs); j = list_next(j)) {
-				job = list_entry(j, struct esh_pipeline, elem);
-				if (job->jid == jid) {
-					found++;
-					break;
-				}
-			}
-			if (!found) {
-				//Job not there
-				printf("bg: %d: no such job\n", jid);
-			}
-			else {
+		if (!list_empty(&jobs)) {
+			if (argv[1] == NULL) {
+				struct list_elem * j = list_rbegin(&jobs);
+				struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
 				job->status = BACKGROUND;
 				printf("[%d]+", job->jid);
 				esh_pipeline_print(job);
@@ -234,8 +210,36 @@ static void Process(char** argv) {
 					esh_sys_fatal_error("bg: kill failed\n");
 				}
 			}
+			else {
+				struct list_elem * j = list_begin(&jobs);
+				struct esh_pipeline *job;
+				int jid = atoi(argv[1]);
+				int found = 0;
+				for (; j != list_end(&jobs); j = list_next(j)) {
+					job = list_entry(j, struct esh_pipeline, elem);
+					if (job->jid == jid) {
+						found++;
+						break;
+					}
+				}
+				if (!found) {
+					//Job not there
+					printf("bg: %d: no such job\n", jid);
+				}
+				else {
+					job->status = BACKGROUND;
+					printf("[%d]+", job->jid);
+					esh_pipeline_print(job);
+					printf("\n");
+					if (kill(job->pgrp, SIGCONT) < 0) {
+						esh_sys_fatal_error("bg: kill failed\n");
+					}
+				}
+			}
 		}
-
+		else {
+			printf("bg: current: no such job\n");
+		}
 	}
 	if (strcmp(argv[0], "fg") == 0) {
 		if (argv[1] == NULL) {
