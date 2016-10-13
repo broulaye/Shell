@@ -16,6 +16,7 @@
 
 static struct termios *termi;
 static jmp_buf jump_buf;
+static void change_chld_stat(pid_t chld, int stat);
 
 static void
 usage(char *progname)
@@ -63,7 +64,7 @@ build_prompt_from_plugins(void)
     return prompt;
 }
 
-/** Handles a SIGTTOU signal. */
+/** Handles a SIGTTOU signal. 
 static void
 handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGTTOU);
@@ -71,6 +72,15 @@ handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     if (kill(sig_inf -> si_pid, SIGSTOP) < 0) {
         esh_sys_fatal_error("Kill: SIGSTOP failed\n");
     }
+}*/
+
+static void handle_sigchld(int signal, siginfo_t *sig_inf, void *p) {
+	pid_t chld;
+	int stat;
+	assert(signal == SIGCHLD);
+	while ((chld = waitpid(-1, &stat, WUNTRACED|WNOHANG)) > 0) {
+		change_chld_stat(chld, stat);
+	}
 }
 
 /** Handles a SIGTSTP signal. */
@@ -182,10 +192,12 @@ static void job_wait(struct esh_pipeline *job) {
 	}
 }
 
-static void Process(char** argv) {
+/** processes the builtin commands, or returns false if input is not builtin */
+static bool Process(char** argv) {
 	if(strcmp(argv[0], "kill") == 0) {
 		//printf("Kill: %s\n", argv[1]);
 		kill(atoi(argv[1]), SIGKILL);
+		return true;
 	}
 
 	else if (strcmp(argv[0], "jobs") == 0) {
@@ -196,6 +208,7 @@ static void Process(char** argv) {
 
 			esh_pipeline_print(Ljobs);
 		}
+		return true;
 	}
 	else if (strcmp(argv[0], "bg") == 0) {
 		if (!list_empty(&jobs)) {
@@ -240,6 +253,7 @@ static void Process(char** argv) {
 		else {
 			printf("bg: current: no such job\n");
 		}
+		return true;
 	}
 	else if (strcmp(argv[0], "fg") == 0) {
 		if (argv[1] == NULL) {
@@ -295,6 +309,7 @@ static void Process(char** argv) {
 				esh_signal_unblock(SIGCHLD);
 			}
 		}
+		return true;
 	}
 	else if (strcmp(argv[0], "stop") == 0) {
 		if (argv[1] == NULL) {
@@ -311,18 +326,14 @@ static void Process(char** argv) {
 			}
 			kill(job->pgrp, SIGSTOP);
 		}
+		return true;
 	}
 	/* exit the shell */
 	else if (strcmp(argv[0], "exit") == 0) {
 		exit(EXIT_SUCCESS);
 	}
 	else {
-		/* User is running a program - fork and exec */
-		esh_signal_sethandler(SIGCHLD, handle_sgttou);
-
-		esh_signal_unblock(SIGCHLD);
-
-		
+		return false;
 	}
 }
 
@@ -357,6 +368,7 @@ main(int ac, char *av[])
     esh_signal_sethandler(SIGTSTP, handle_sigtstp);
     esh_signal_sethandler(SIGINT, handle_sigint);
     int opt;
+    int jid = 0;
     list_init(&esh_plugin_list);
     list_init(&jobs);
 
@@ -395,13 +407,129 @@ main(int ac, char *av[])
             continue;
         }
 
+	struct list_elem *pipe_chld;
+	int proc_pipe[2], io_pipe[2];
 	struct list_elem * e = list_begin(&cline->pipes);
 	for (; e != list_end(&cline->pipes); e = list_next(e)) {
-		struct esh_pipeline *pipe = list_entry(e, struct esh_pipeline, elem);
-		struct list_elem *c = list_begin(&pipe->commands);
-		for (; c != list_end(&pipe->commands); c = list_next(c)) {
+		struct esh_pipeline *_pipe = list_entry(e, struct esh_pipeline, elem);
+		struct list_elem *c = list_begin(&_pipe->commands);
+		for (; c != list_end(&_pipe->commands); c = list_next(c)) {
 			struct esh_command *command = list_entry(c, struct esh_command, elem);
-			Process(command->argv);
+			if (!Process(command->argv)) {
+				esh_signal_sethandler(SIGCHLD, handle_sigchld);
+				esh_signal_unblock(SIGCHLD);
+				if (c == list_begin(&_pipe->commands)) {
+					_pipe->jid = ++jid;
+					e = list_rend(&cline->pipes);
+					pipe_chld = list_pop_front(&cline->pipes);
+					list_push_back(&jobs, pipe_chld);
+				}
+				if (list_size(&_pipe->commands) > 1 && c != list_rbegin(&_pipe->commands)) {
+					pipe(proc_pipe);
+				}
+				esh_signal_block(SIGCHLD);
+				
+				pid_t fork_pid = fork();
+
+				if (fork_pid < 0) {
+					//error
+					esh_sys_fatal_error("execute: fork failed");
+				}
+				else if (fork_pid == 0) {
+					//child  process
+					fork_pid = getpid();
+					if (c == list_begin(&_pipe->commands)) {
+						_pipe->pgrp = fork_pid;
+					}
+					setpgid(fork_pid, _pipe->pgrp);
+					command->pid = fork_pid;
+
+					if (list_size(&_pipe->commands) > 1 && c != list_rbegin(&_pipe->commands)) {
+						close(proc_pipe[0]);
+						dup2(proc_pipe[1], 1);
+						close(proc_pipe[1]);
+					}
+					if (list_size(&_pipe->commands) > 1 && c != list_begin(&_pipe->commands)) {
+						close(io_pipe[1]);
+						dup2(io_pipe[0], 0);
+						close(io_pipe[0]);
+					}
+					if (command->iored_input != NULL) {
+						int input = open(command->iored_input, O_RDONLY);
+						if (input < 0) {
+							esh_sys_fatal_error("execute: open failed\n");
+						}
+						if (dup2(input, 0) < 0) {
+							esh_sys_fatal_error("execute: dup2 failed\n");
+						}
+						close(input);
+					}
+					if (command->iored_output != NULL) {
+						int output;
+						if (command->append_to_output) {
+							if ((output = open(command->iored_output, O_WRONLY | O_APPEND | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)) < 0) {
+								esh_sys_fatal_error("execute: open failed\n");
+							}
+						} else {
+							if ((output = open(command->iored_output, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)) < 0) {
+								esh_sys_fatal_error("execute: open failed\n");
+							}
+						}
+						if (dup2(output, 1) < 0) {
+							esh_sys_fatal_error("execute: dup2 failed\n");
+						}
+						close(output);
+					}
+					if (_pipe->bg_job) {
+						_pipe->status = BACKGROUND;
+					}
+					else {
+						_pipe->status = FOREGROUND;
+						give_terminal_to(_pipe->pgrp, termi);
+					}
+
+					if (execvp(command->argv[0], command->argv) < 0) {
+						esh_sys_fatal_error("%s: command not found\n", command->argv[0]);
+					}
+				}
+				else if (fork_pid > 0) {
+					//parent process
+					if (c == list_begin(&_pipe->commands)) {
+						_pipe->pgrp = fork_pid;
+					}
+
+					command->pid = fork_pid;
+					setpgid(fork_pid, _pipe->pgrp);
+
+					if (list_size(&_pipe->commands) > 1 && c != list_begin(&_pipe->commands)) {
+						io_pipe[0] = proc_pipe[0];
+						io_pipe[1] = proc_pipe[1];
+					}
+					if (list_size(&_pipe->commands) > 1 && c == list_rbegin(&_pipe->commands)) {
+						close(proc_pipe[0]);
+						close(proc_pipe[1]);
+						close(io_pipe[0]);
+						close(io_pipe[1]);
+					}
+					if (list_size(&_pipe->commands) > 1 && c != list_rbegin(&_pipe->commands) && c != list_begin(&_pipe->commands)) {
+						close(io_pipe[0]);
+						close(io_pipe[1]);
+						io_pipe[0] = proc_pipe[0];
+						io_pipe[1] = proc_pipe[1];
+					}
+
+					if (_pipe->bg_job) {
+						_pipe->status = BACKGROUND;
+						printf("[%d] %d\n", _pipe->jid, _pipe->pgrp);
+					}
+					if (c == list_rbegin(&_pipe->commands) && !_pipe->bg_job) {
+						_pipe->status = FOREGROUND;
+						job_wait(_pipe);
+						give_terminal_to(getpgrp(), termi);
+					}
+				}
+				esh_signal_unblock(SIGCHLD);
+			}
 		}
 	}
 
