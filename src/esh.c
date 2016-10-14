@@ -64,7 +64,7 @@ build_prompt_from_plugins(void)
     return prompt;
 }
 
-/** Handles a SIGTTOU signal. 
+/** Handles a SIGTTOU signal.
 static void
 handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     assert(signal == SIGTTOU);
@@ -156,6 +156,8 @@ static void change_chld_stat(pid_t chld, int stat) {
 	struct esh_command *cmd = get_command_from_pid(chld);
 	if (cmd == NULL) {
 		printf("no such job\n");
+		give_terminal_to(getpgrp(), termi);
+
 		return;
 	}
 	struct esh_pipeline * chld_pipe = cmd->pipeline;
@@ -166,32 +168,19 @@ static void change_chld_stat(pid_t chld, int stat) {
 			give_terminal_to(getpgrp(), termi);
 		}
 	}
-	if (WIFSIGNALED(stat)) {
-		if (WTERMSIG(stat)) {
-			list_remove(&chld_pipe->elem);
-		}
-		else {
-			printf("[%d]  Terminated    ", chld_pipe->jid);
-			esh_pipeline_print(chld_pipe);
-			chld_pipe->status = BACKGROUND;
-			list_remove(&chld_pipe->elem);
-			give_terminal_to(getpgrp(), termi);
-		}
-	}
 	if (WIFSTOPPED(stat)) {
 		if (WSTOPSIG(stat) == 19) {
 			printf("19\n");
 			chld_pipe->status = STOPPED;
 		}
 		else {
-			printf("\n[%d]  Stopped    ", chld_pipe->jid);
+			printf("\n[%d]+  Stopped    ", chld_pipe->jid);
 			esh_pipeline_print(chld_pipe);
 			chld_pipe->status = STOPPED;
 			give_terminal_to(getpgrp(), termi);
 		}
 	}
 }
-
 
 static void job_wait(struct esh_pipeline *job) {
 	assert(esh_signal_is_blocked(SIGCHLD));
@@ -210,6 +199,9 @@ static void job_wait(struct esh_pipeline *job) {
 static bool Process(char** argv) {
 	if(strcmp(argv[0], "kill") == 0) {
 		//printf("Kill: %s\n", argv[1]);
+		if(argv[1] == NULL) {
+            printf("kill: usage: kill pid");
+		}
 		kill(atoi(argv[1]), SIGKILL);
 		return true;
 	}
@@ -265,20 +257,20 @@ static bool Process(char** argv) {
 			}
 		}
 		else {
-			printf("bg: current: no such job\n");
+			printf("-bash: bg: current: no such job\n");
 		}
 		return true;
 	}
 	else if (strcmp(argv[0], "fg") == 0) {
 		if (argv[1] == NULL) {
-			printf("fg with no parameter ");
 			struct list_elem * j = list_rbegin(&jobs);
 			struct esh_pipeline *job = list_entry(j, struct esh_pipeline, elem);
 			if(list_empty(&jobs)) {
-				printf("fg: current: no such job\n");
+				printf("-bash: fg: current: no such job\n");
 			}
 			else {
 				esh_signal_block(SIGCHLD);
+				list_remove(&job->elem);
 				job->status = FOREGROUND;
 				printf("[%d]+", job->jid);
 				esh_pipeline_print(job);
@@ -287,7 +279,6 @@ static bool Process(char** argv) {
 					esh_sys_fatal_error("bg: kill failed\n");
 				}
 				job_wait(job);
-				list_remove(&job->elem);
 				esh_signal_unblock(SIGCHLD);
 			}
 
@@ -385,7 +376,7 @@ main(int ac, char *av[])
     int jid = 0;
     list_init(&esh_plugin_list);
     list_init(&jobs);
-    termi = esh_sys_tty_init();
+termi = esh_sys_tty_init();
     /* Process command-line arguments. See getopt(3) */
     while ((opt = getopt(ac, av, "hp:")) > 0) {
         switch (opt) {
@@ -401,8 +392,6 @@ main(int ac, char *av[])
 
     esh_plugin_initialize(&shell);
     setjmp(jump_buf);
-
-    give_terminal_to(getpgrp(), termi);
 
     /* Read/eval loop. */
     for (;;) {
@@ -445,7 +434,7 @@ main(int ac, char *av[])
 					pipe(proc_pipe);
 				}
 				esh_signal_block(SIGCHLD);
-				
+
 				pid_t fork_pid = fork();
 
 				if (fork_pid < 0) {

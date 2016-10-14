@@ -20,10 +20,10 @@ struct list esh_plugin_list;
 
 /* Create new command structure and initialize first command word,
  * and/or input or output redirect file. */
-struct esh_command * 
-esh_command_create(char ** argv, 
-                   char *iored_input, 
-                   char *iored_output, 
+struct esh_command *
+esh_command_create(char ** argv,
+                   char *iored_input,
+                   char *iored_output,
                    bool append_to_output)
 {
     struct esh_command *cmd = malloc(sizeof *cmd);
@@ -92,45 +92,49 @@ esh_command_print(struct esh_command *cmd)
 {
     char **p = cmd->argv;
 
-    printf("  Command:");
+    //printf("  Command:");
     while (*p)
         printf(" %s", *p++);
 
-    printf("\n");
+    //printf("\n");
 
     if (cmd->iored_output)
-        printf("  stdout %ss to %s\n", 
+        printf("  stdout %ss to %s\n",
                 cmd->append_to_output ? "append" : "write",
                 cmd->iored_output);
 
     if (cmd->iored_input)
         printf("  stdin reads from %s\n", cmd->iored_input);
 }
-  
+
 /* Print esh_pipeline structure to stdout */
 void
 esh_pipeline_print(struct esh_pipeline *pipe)
 {
     int i = 1;
-    struct list_elem * e = list_begin (&pipe->commands); 
+    struct list_elem * e = list_begin (&pipe->commands);
 
-    printf(" Pipeline\n");
+    //printf(" Pipeline\n");
     for (; e != list_end (&pipe->commands); e = list_next (e)) {
         struct esh_command *cmd = list_entry(e, struct esh_command, elem);
 
-        printf(" %d. ", i++);
+        printf("[%d] ", i++);
+        if(pipe->status == BACKGROUND) {
+            printf("Running ");
+        }
         esh_command_print(cmd);
     }
 
     if (pipe->bg_job)
-        printf("  - is a background job\n");
+        printf(" &\n");
+        //printf("  - is a background job\n");
 }
 
 /* Print esh_command_line structure to stdout */
-void 
+void
 esh_command_line_print(struct esh_command_line *cmdline)
 {
-    struct list_elem * e = list_begin (&cmdline->pipes); 
+    struct list_elem * e = list_begin (&cmdline->pipes);
 
     printf("Command line\n");
     for (; e != list_end (&cmdline->pipes); e = list_next (e)) {
@@ -143,10 +147,10 @@ esh_command_line_print(struct esh_command_line *cmdline)
 }
 
 /* Deallocation functions. */
-void 
+void
 esh_command_line_free(struct esh_command_line *cmdline)
 {
-    struct list_elem * e = list_begin (&cmdline->pipes); 
+    struct list_elem * e = list_begin (&cmdline->pipes);
 
     for (; e != list_end (&cmdline->pipes); ) {
         struct esh_pipeline *pipe = list_entry(e, struct esh_pipeline, elem);
@@ -156,10 +160,10 @@ esh_command_line_free(struct esh_command_line *cmdline)
     free(cmdline);
 }
 
-void 
+void
 esh_pipeline_free(struct esh_pipeline *pipe)
 {
-    struct list_elem * e = list_begin (&pipe->commands); 
+    struct list_elem * e = list_begin (&pipe->commands);
 
     for (; e != list_end (&pipe->commands); ) {
         struct esh_command *cmd = list_entry(e, struct esh_command, elem);
@@ -169,7 +173,7 @@ esh_pipeline_free(struct esh_pipeline *pipe)
     free(pipe);
 }
 
-void 
+void
 esh_command_free(struct esh_command * cmd)
 {
     char ** p = cmd->argv;
@@ -220,7 +224,7 @@ static bool sort_by_rank (const struct list_elem *a,
 }
 
 /* Load plugins from directory dirname */
-void 
+void
 esh_plugin_load_from_directory(char *dirname)
 {
     DIR * dir = opendir(dirname);
@@ -245,7 +249,7 @@ esh_plugin_load_from_directory(char *dirname)
 }
 
 /* Initialize loaded plugins */
-void 
+void
 esh_plugin_initialize(struct esh_shell *shell)
 {
     /* Sort plugins and call init() method. */
