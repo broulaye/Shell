@@ -74,13 +74,31 @@ handle_sigttou(int signal, siginfo_t *sig_inf, void *p) {
     }
 }*/
 
-static void handle_sigchld(int signal, siginfo_t *sig_inf, void *p) {
-	pid_t chld;
-	int stat;
-	assert(signal == SIGCHLD);
-	while ((chld = waitpid(-1, &stat, WUNTRACED|WNOHANG)) > 0) {
-		change_chld_stat(chld, stat);
-	}
+/*
+ * SIGCHLD handler.
+ * Call waitpid() to learn about any child processes that
+ * have exited or changed status (been stopped, needed the
+ * terminal, etc.)
+ * Just record the information by updating the job list
+ * data structures.  Since the call may be spurious (e.g.
+ * already pending SIGCHLD is delivered even though
+ * a foreground process was already reaped), ignore when
+ * waitpid returns -1.
+ * Use a loop with WNOHANG since only a single SIGCHLD 
+ * signal may be delivered for multiple children that have 
+ * exited.
+ */
+static void
+sigchld_handler(int sig, siginfo_t *info, void *_ctxt)
+{
+    pid_t child;
+    int status;
+
+    assert(sig == SIGCHLD);
+
+    while ((child = waitpid(-1, &status, WUNTRACED|WNOHANG)) > 0) {
+        child_status_change(child, status);
+    }
 }
 
 /** Handles a SIGTSTP signal. */
@@ -202,7 +220,12 @@ static bool Process(char** argv) {
 		if(argv[1] == NULL) {
             printf("kill: usage: kill pid");
 		}
-		kill(atoi(argv[1]), SIGKILL);
+
+		
+
+		if (kill(atoi(argv[1]), SIGKILL) < 0) {
+			esh_sys_fatal_error("Kill: SIGKILL failed\n");
+		}
 		return true;
 	}
 
@@ -534,6 +557,10 @@ termi = esh_sys_tty_init();
 						give_terminal_to(getpgrp(), termi);
 					}
 				}
+				close(proc_pipe[0]);
+				close(proc_pipe[1]);
+				close(io_pipe[0]);
+				close(io_pipe[1]);
 				esh_signal_unblock(SIGCHLD);
 			}
 		}
