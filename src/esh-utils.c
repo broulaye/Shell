@@ -92,11 +92,11 @@ esh_command_print(struct esh_command *cmd)
 {
     char **p = cmd->argv;
 
-    //printf("  Command:");
+    printf("  Command:");
     while (*p)
         printf(" %s", *p++);
 
-    //printf("\n");
+    printf("\n");
 
     if (cmd->iored_output)
         printf("  stdout %ss to %s\n",
@@ -114,20 +114,23 @@ esh_pipeline_print(struct esh_pipeline *pipe)
     int i = 1;
     struct list_elem * e = list_begin (&pipe->commands);
 
-    //printf(" Pipeline\n");
+    printf(" Pipeline\n");
     for (; e != list_end (&pipe->commands); e = list_next (e)) {
         struct esh_command *cmd = list_entry(e, struct esh_command, elem);
 
-        printf("[%d] ", i++);
+        printf("[%d]", i++);
         if(pipe->status == BACKGROUND) {
-            printf("Running ");
+            printf("+ Running ");
+        }
+        if(pipe->status == BACKGROUND) {
+            printf("+ Stopped ");
         }
         esh_command_print(cmd);
     }
 
     if (pipe->bg_job)
         printf(" &\n");
-        //printf("  - is a background job\n");
+        printf("  - is a background job\n");
 }
 
 /* Print esh_command_line structure to stdout */

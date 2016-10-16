@@ -174,7 +174,7 @@ static void change_chld_stat(pid_t chld, int stat) {
 			chld_pipe->status = STOPPED;
 		}
 		else {
-			printf("\n[%d]+  Stopped    ", chld_pipe->jid);
+			printf("\n[%d]+  Stopped ", chld_pipe->jid);
 			esh_pipeline_print(chld_pipe);
 			chld_pipe->status = STOPPED;
 			give_terminal_to(getpgrp(), termi);
@@ -200,7 +200,7 @@ static bool Process(char** argv) {
 	if(strcmp(argv[0], "kill") == 0) {
 		//printf("Kill: %s\n", argv[1]);
 		if(argv[1] == NULL) {
-            printf("kill: usage: kill pid");
+            printf("kill: usage: kill");
 		}
 		kill(atoi(argv[1]), SIGKILL);
 		return true;
@@ -211,8 +211,30 @@ static bool Process(char** argv) {
 
 		for(; j != list_end(&jobs); j = list_next(j)){
 			struct esh_pipeline *Ljobs = list_entry(j, struct esh_pipeline, elem);
+			int i = 1;
+            struct list_elem * e = list_begin (&Ljobs->commands);
+            for (; e != list_end (&Ljobs->commands); e = list_next (e)) {
+                struct esh_command *cmd = list_entry(e, struct esh_command, elem);
 
-			esh_pipeline_print(Ljobs);
+                printf("[%d]", i++);
+                if(Ljobs->status == BACKGROUND) {
+                    printf(" Running");
+                }
+                if(Ljobs->status == STOPPED) {
+                    printf(" Stopped ");
+                }
+                char **p = cmd->argv;
+
+                while (*p)
+                    printf(" %s", *p++);
+
+                if (Ljobs->bg_job)
+                printf(" &\n");
+            }
+
+
+
+			//esh_pipeline_print(Ljobs);
 		}
 		return true;
 	}
