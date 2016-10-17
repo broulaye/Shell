@@ -17,6 +17,7 @@
 static struct termios *termi;
 static jmp_buf jump_buf;
 static void change_chld_stat(pid_t chld, int stat);
+int jcount;
 
 static void
 usage(char *progname)
@@ -27,6 +28,68 @@ usage(char *progname)
         progname);
 
     exit(EXIT_SUCCESS);
+}
+struct list jobs;
+
+/**
+*This method print the commands in the pipeline
+*/
+static void print_command(struct esh_pipeline *Ljobs) {
+    printf("\n[%d]", Ljobs->jid);
+    if(&Ljobs->elem == list_prev(list_rbegin(&jobs))) {
+        printf("-");
+    }
+    if(&Ljobs->elem == list_rbegin(&jobs)) {
+        printf("+");
+    }
+
+    if(Ljobs->status == BACKGROUND) {
+        printf(" Running\t\t");
+    }
+    if(Ljobs->status == STOPPED) {
+        printf(" Stopped\t\t");
+    }
+    if(Ljobs->status == FOREGROUND) {
+        printf(" Foreground\t\t");
+    }
+    if(Ljobs->status == NEEDSTERMINAL) {
+        printf(" Need Terminal\t\t");
+    }
+
+    printf("(");
+    struct list_elem * e = list_begin (&Ljobs->commands);
+    for (; e != list_end (&Ljobs->commands); e = list_next (e)) {
+        struct esh_command *cmd = list_entry(e, struct esh_command, elem);
+        char **p = cmd->argv;
+        while (*p) {
+            printf("%s", *p);
+            p++;
+            if(*p != NULL) {
+                printf(" ");
+            }
+        }
+        if(e != list_rbegin(&Ljobs->commands)) {
+            printf("|");
+        }
+
+    }
+
+
+    if (Ljobs->bg_job)
+        printf(" &");
+
+    printf(")\n");
+}
+
+static struct esh_pipeline * get_job_from_jid(int jid) {
+	struct list_elem * e = list_begin (&jobs);
+	for (; e != list_end(&jobs); e = list_next(e)) {
+		struct esh_pipeline *job = list_entry(e, struct esh_pipeline, elem);
+		if (job->jid == jid) {
+			return job;
+		}
+	}
+	return NULL;
 }
 
 /* Build a prompt by assembling fragments from loaded plugins that
@@ -97,7 +160,7 @@ sigchld_handler(int sig, siginfo_t *info, void *_ctxt)
     assert(sig == SIGCHLD);
 
     while ((child = waitpid(-1, &status, WUNTRACED|WNOHANG)) > 0) {
-        child_status_change(child, status);
+        change_chld_stat(child, status);
     }
 }
 
@@ -128,7 +191,6 @@ struct esh_shell shell =
     .parse_command_line = esh_parse_command_line /* Default parser */
 };
 
-struct list jobs;
 
 static struct esh_command * get_command_from_pid(pid_t pid) {
     struct list_elem * e = list_begin(&jobs);
@@ -174,7 +236,7 @@ static void change_chld_stat(pid_t chld, int stat) {
 	struct esh_command *cmd = get_command_from_pid(chld);
 	if (cmd == NULL) {
 		printf("no such job\n");
-		give_terminal_to(getpgrp(), termi);
+		//give_terminal_to(getpgrp(), termi);
 
 		return;
 	}
@@ -186,17 +248,31 @@ static void change_chld_stat(pid_t chld, int stat) {
 			give_terminal_to(getpgrp(), termi);
 		}
 	}
+	if(WIFSIGNALED(stat)) {
+        if(WTERMSIG(stat) == 9) {
+            list_remove(&chld_pipe->elem);
+        }
+        else {
+            chld_pipe->status = BACKGROUND;
+            list_remove(&chld_pipe->elem);
+            give_terminal_to(getpgrp(), termi);
+        }
+
+	}
 	if (WIFSTOPPED(stat)) {
 		if (WSTOPSIG(stat) == 19) {
 			printf("19\n");
 			chld_pipe->status = STOPPED;
 		}
 		else {
-			printf("\n[%d]+  Stopped ", chld_pipe->jid);
-			esh_pipeline_print(chld_pipe);
 			chld_pipe->status = STOPPED;
+			print_command(chld_pipe);
 			give_terminal_to(getpgrp(), termi);
 		}
+	}
+
+	if (list_empty(&jobs)) {
+		jcount = 0;
 	}
 }
 
@@ -220,9 +296,16 @@ static bool Process(char** argv) {
 		if(argv[1] == NULL) {
             printf("kill: usage: kill");
 		}
-		if (kill(atoi(argv[1]), SIGKILL) < 0) {
-			esh_sys_fatal_error("Kill: SIGKILL failed\n");
+		struct esh_pipeline *job = get_job_from_jid(atoi(argv[1]));
+		if( job != NULL) {
+            if (kill(job->pgrp, SIGKILL) < 0) {
+                esh_sys_fatal_error("-bash: kill: (%s) - Operation not permitted\n", argv[1]);
+            }
 		}
+		else {
+             esh_sys_fatal_error("-bash: kill: (%s) - Operation not permitted\n", argv[1]);
+		}
+
 		return true;
 	}
 
@@ -231,30 +314,7 @@ static bool Process(char** argv) {
 
 		for(; j != list_end(&jobs); j = list_next(j)){
 			struct esh_pipeline *Ljobs = list_entry(j, struct esh_pipeline, elem);
-			int i = 1;
-            struct list_elem * e = list_begin (&Ljobs->commands);
-            for (; e != list_end (&Ljobs->commands); e = list_next (e)) {
-                struct esh_command *cmd = list_entry(e, struct esh_command, elem);
-
-                printf("[%d]", i++);
-                if(Ljobs->status == BACKGROUND) {
-                    printf(" Running");
-                }
-                if(Ljobs->status == STOPPED) {
-                    printf(" Stopped ");
-                }
-                char **p = cmd->argv;
-
-                while (*p)
-                    printf(" %s", *p++);
-
-                if (Ljobs->bg_job)
-                printf(" &\n");
-            }
-
-
-
-			//esh_pipeline_print(Ljobs);
+			print_command(Ljobs);
 		}
 		return true;
 	}
@@ -312,15 +372,15 @@ static bool Process(char** argv) {
 			}
 			else {
 				esh_signal_block(SIGCHLD);
-				list_remove(&job->elem);
 				job->status = FOREGROUND;
-				printf("[%d]+", job->jid);
-				esh_pipeline_print(job);
-				printf("\n");
+				print_command(job);
+				give_terminal_to(job->pgrp, termi);
 				if (kill(job->pgrp, SIGCONT) < 0) {
 					esh_sys_fatal_error("bg: kill failed\n");
 				}
 				job_wait(job);
+
+				//list_remove(&job->elem);
 				esh_signal_unblock(SIGCHLD);
 			}
 
@@ -342,13 +402,12 @@ static bool Process(char** argv) {
 				printf("bg: %d: no such job\n", jid);
 			}
 			else {
-				list_remove(&job->elem);
+				//list_remove(&job->elem);
 
 				esh_signal_block(SIGCHLD);
 				job->status = FOREGROUND;
-				printf("[%d]+", job->jid);
-				esh_pipeline_print(job);
-				printf("\n");
+				print_command(job);
+				give_terminal_to(job->pgrp, termi);
 				if (kill(job->pgrp, SIGCONT) < 0) {
 					esh_sys_fatal_error("bg: kill failed\n");
 				}
@@ -384,18 +443,9 @@ static bool Process(char** argv) {
 	}
 }
 
-/**
-static struct esh_pipeline * get_job_from_jid(int jid) {
-	struct list_elem * e = list_begin (&jobs);
-	for (; e != list_end(&jobs); e = list_next(e)) {
-		struct esh_pipeline *job = list_entry(e, struct esh_pipeline, elem);
-		if (job->jid == jid) {
-			return job;
-		}
-	}
-	return NULL;
-}
 
+
+/**
 static struct esh_pipeline * get_job_from_pgrp(pid_t pgrp) {
 	struct list_elem * e = list_begin(&jobs);
 	for (; e != list_end(&jobs); e = list_next(e)) {
@@ -415,10 +465,10 @@ main(int ac, char *av[])
     esh_signal_sethandler(SIGTSTP, handle_sigtstp);
     esh_signal_sethandler(SIGINT, handle_sigint);
     int opt;
-    int jid = 0;
+    jcount = 0;
     list_init(&esh_plugin_list);
     list_init(&jobs);
-termi = esh_sys_tty_init();
+    termi = esh_sys_tty_init();
     /* Process command-line arguments. See getopt(3) */
     while ((opt = getopt(ac, av, "hp:")) > 0) {
         switch (opt) {
@@ -464,10 +514,11 @@ termi = esh_sys_tty_init();
 		for (; c != list_end(&_pipe->commands); c = list_next(c)) {
 			struct esh_command *command = list_entry(c, struct esh_command, elem);
 			if (!Process(command->argv)) {
-				esh_signal_sethandler(SIGCHLD, handle_sigchld);
+				esh_signal_sethandler(SIGCHLD, sigchld_handler);
 				esh_signal_unblock(SIGCHLD);
 				if (c == list_begin(&_pipe->commands)) {
-					_pipe->jid = ++jid;
+					jcount++;
+					_pipe->jid = jcount;
 					e = list_rend(&cline->pipes);
 					pipe_chld = list_pop_front(&cline->pipes);
 					list_push_back(&jobs, pipe_chld);
@@ -549,7 +600,7 @@ termi = esh_sys_tty_init();
 					command->pid = fork_pid;
 					setpgid(fork_pid, _pipe->pgrp);
 
-					if (list_size(&_pipe->commands) > 1 && c != list_begin(&_pipe->commands)) {
+					if (list_size(&_pipe->commands) > 1 && c == list_begin(&_pipe->commands)) {
 						io_pipe[0] = proc_pipe[0];
 						io_pipe[1] = proc_pipe[1];
 					}
@@ -576,10 +627,7 @@ termi = esh_sys_tty_init();
 						give_terminal_to(getpgrp(), termi);
 					}
 				}
-				close(proc_pipe[0]);
-				close(proc_pipe[1]);
-				close(io_pipe[0]);
-				close(io_pipe[1]);
+
 				esh_signal_unblock(SIGCHLD);
 			}
 		}
