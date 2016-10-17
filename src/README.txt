@@ -43,4 +43,22 @@ List of Plugins Implemented
 		adds the digits from the command line, outputs the sum
 
 	(Written by Others)
-		
+		perm
+        algasson+ishitag
+
+        matrix_screensaver
+        ajbarnes+sshumway
+
+        coin
+        env
+        football
+        kitty
+        alecm95+alecn
+
+        iswintercomming
+        tellmeimpretty
+        bhaanuk5+divyg
+
+        platecounter
+        converter
+        conorg95+szuzzah
